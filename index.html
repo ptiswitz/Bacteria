@@ -1,0 +1,248 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+	<meta charset="UTF-8">
+	<title>Bacteria</title>
+	
+	<style type="text/css">
+		#content {
+			margin: 0 auto;
+			width: 400px;
+		}
+		
+		#world {
+			border: 1px solid #444;
+		}
+	</style>
+</head>
+<body>
+	<div id="content">
+		<p>Sélectionner l'automate cellulaire puis lancer le bouton <input type="button" value="Lancer" id="btn-action" /></p>
+		<canvas id="world" width="400" height="400">Votre navigateur ne suppporte pas les canvas.</canvas>
+	</div>
+	<script type="text/javascript">
+		window.addEventListener('load', function() {
+			var world = new World();
+			world.init();
+		});
+		
+		function Bacteria(x, y, size, colors) {
+			this.x = x;
+			this.y = y;
+			this.width = size;
+			this.height = size;
+			this.colors = colors;
+			this.status = 0; // 0 born, 1 alive, 2 dying
+			this.alive = false;
+			
+			this.draw = function(context) {			
+				if(this.alive) {
+					context.fillStyle = this.colors[this.status]; //this.colors[1]; 
+					context.fillRect(this.x, this.y, this.width, this.height);
+				}	
+			};
+			
+			this.isLiving = function() {
+				return (this.alive && this.status in [0, 1]);
+			};
+			
+			this.clone = function() {
+				var temp = new Bacteria(this.x, this.y, this.width, this.colors);
+				temp.alive = this.alive;
+				
+				return temp;
+			};
+		}
+		
+		function World() {
+			this.colors = ['#02A817', '#3A5BCD', '#EF2B36']; // '#02A817' (vert), '#3A5BCD' (bleu), '#EF2B36' (rouge), '#FFC636' (jaune) 
+			this.bacterias = new Array();
+			this.canvas = null;
+			this.context = null;
+			this.width = 0;
+			this.height = 0;
+			this.idInterval = null;
+			this.bacteriaSize = 10;
+			this.nbLines = 0;
+			this.nbBacteriasPerLine = 0;
+			this.minSurvive = 2;
+			this.maxSurvive = 4;
+			this.nbCreation = 3;
+			this.played = false;
+			this.actionButton = null;
+			
+			this.init = function() {
+				this.canvas = document.getElementById('world');
+				this.actionButton = document.getElementById('btn-action');
+				this.context = this.canvas.getContext('2d');
+				this.width = this.canvas.width;
+				this.height = this.canvas.height;
+				
+				this.nbLines = Math.round(this.height / this.bacteriaSize);
+				this.nbBacteriasPerLine = Math.round(this.width / this.bacteriaSize);
+				
+				this.bacterias = new Array(this.nbLines);
+				
+				for(var i = 0; i < this.nbLines; i++) {
+					this.bacterias[i] = new Array(this.nbBacteriasPerLine);
+					
+					for(var j = 0; j < this.nbBacteriasPerLine; j++) {
+						this.bacterias[i][j] = new Bacteria(j * this.bacteriaSize, i * this.bacteriaSize, this.bacteriaSize, this.colors);
+					}
+				}
+				
+				var self = this;
+				this.canvas.addEventListener('click', function(e) {
+					self.canvasClickHandler(e);
+				}, false);
+
+				this.actionButton.addEventListener('click', function() {
+					self.buttonClickHandler();
+				}, false);
+			};
+			
+			this.buttonClickHandler = function() {
+				if(!this.played) {
+					this.start();
+				}
+				else {
+					this.pause();
+				}
+			};
+			
+			this.canvasClickHandler = function(e) {
+				if(!this.played) {
+					var j = Math.round(e.offsetX / this.bacteriaSize);
+					var i = Math.round(e.offsetY / this.bacteriaSize);
+					
+					if(this.bacterias[i][j].alive) {
+						this.bacterias[i][j].alive = false;
+						this.bacterias[i][j].status = 0;
+					}
+					else {
+						this.bacterias[i][j].alive = true;
+						this.bacterias[i][j].status = 1;
+					}
+					this.drawCanvas();
+				}
+			};
+			
+			this.start = function() {
+				this.played = true;
+				this.actionButton.value = 'Stop';
+				
+				var self = this;
+				this.idInterval = setInterval(function() {
+					self.intervalHandler();
+				}, 2000);
+			};
+			
+			this.pause = function() {
+				this.played = false;
+				this.actionButton.value = 'Lancer';
+				clearInterval(this.idInterval);
+			};
+			
+			this.clearCanvas = function() {
+				this.context.clearRect(0, 0, this.width, this.height);
+			};
+			
+			this.drawObjects = function() {
+				for(var i = 0; i < this.nbLines; i++) {
+					for(var j = 0; j < this.nbBacteriasPerLine; j++) {
+						this.bacterias[i][j].draw(this.context);
+					}
+				}
+			};
+			
+			this.intervalHandler = function() {
+				this.cleanDyingBacterias();
+				this.evolution();
+				//this.cleanDyingBacterias();
+			};
+			
+			this.drawCanvas = function() {
+				this.clearCanvas();
+				this.drawObjects(); 
+			};
+			
+			this.cleanDyingBacterias = function() {
+				for(var i = 0; i < this.nbLines; i++) {
+					for(var j = 0; j < this.nbBacteriasPerLine; j++) {
+						if(this.bacterias[i][j].status === 2) {
+							this.bacterias[i][j].status = 0;
+							this.bacterias[i][j].alive = false;
+						}
+					}
+				}
+				this.drawCanvas();
+			};
+			
+			this.evolution = function() {
+				var newEvolutionStep = new Array(this.nbLines);
+				
+				for(var i = 0; i < this.nbLines; i++) {
+					newEvolutionStep[i] = new Array(this.nbBacteriasPerLine);
+					
+					for(var j = 0; j < this.nbBacteriasPerLine; j++) {
+						var nbNeighbours = this.nbNeighbours(i, j);
+						var bacteria = this.bacterias[i][j].clone();
+						
+						if(this.bacterias[i][j].alive) {
+							if(nbNeighbours >= 2 && nbNeighbours <= 3) {
+								bacteria.status = 1;
+							}
+							else {
+								bacteria.status = 2;
+							}
+						}
+						else {
+							if(nbNeighbours == 3) {
+								bacteria.status = 0;
+								bacteria.alive = true;
+							}
+						}
+
+						newEvolutionStep[i][j] = bacteria;
+					}
+				}
+				
+				this.bacterias = newEvolutionStep;
+				this.drawCanvas();
+			};
+			
+			this.nbNeighbours = function(i, j) {
+				var count = 0;
+				var startI = (i > 0) ? i - 1 : i;
+				var endI = (startI === this.nbLines - 1) ? startI : ((startI === this.nbLines - 2) ? startI + 1 : startI + 2);
+				var startJ = (j > 0) ? j - 1 : j;
+				var endJ = (startJ === this.nbBacteriasPerLine - 1) ? startJ : ((startJ === this.nbBacteriasPerLine - 2) ? startJ + 1 : startJ + 2);
+				
+				for(var k = startI; k <= endI; k++) {
+					for(var l = startJ; l <= endJ; l++) {
+						if(this.bacterias[k][l] != this.bacterias[i][j] && this.bacterias[k][l].isLiving()) {
+							count++;
+						}
+					}
+				}
+				
+				/*if(this.bacterias[i][j].alive) {
+					var o = {
+						i: i,
+						j: j,
+						startI: startI,
+						endI: endI,
+						startJ: startJ,
+						endJ: endJ,
+						nbCases: ((endI - startI) + 1) * ((endJ - startJ) + 1),
+						count: count
+					};
+					console.log(o);
+				}*/
+				
+				return count;
+			};
+		}
+	</script>
+</body>
+</html>
